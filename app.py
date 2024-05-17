@@ -98,6 +98,9 @@ def account_update_view(account_number):
     # At the end of the `connection()` context, the transaction is committed
     # or rolled back, and the connection returned to the pool.
 
+    if account is None:
+        return jsonify({"error": "Account not found."}), 404
+
     return jsonify(account)
 
 
