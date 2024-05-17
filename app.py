@@ -118,7 +118,7 @@ def account_update_save(account_number):
         error = "Balance is required to be decimal."
 
     if error is not None:
-        return error, 400
+        return jsonify({"message": error, "status": "error"}), 400
     else:
         with pool.connection() as conn:
             with conn.cursor() as cur:
@@ -132,6 +132,13 @@ def account_update_save(account_number):
                 )
                 # The result of this statement is persisted immediately by the database
                 # because the connection is in autocommit mode.
+                log.debug(f"Updated {cur.rowcount} rows.")
+
+                if cur.rowcount == 0:
+                    return (
+                        jsonify({"message": "Account not found.", "status": "error"}),
+                        404,
+                    )
 
         # The connection is returned to the pool at the end of the `connection()` context but,
         # because it is not in a transaction state, no COMMIT is executed.
