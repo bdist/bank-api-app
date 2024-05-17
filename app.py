@@ -76,7 +76,7 @@ def account_index():
             ).fetchall()
             log.debug(f"Found {cur.rowcount} rows.")
 
-    return jsonify(accounts)
+    return jsonify(accounts), 200
 
 
 @app.route("/accounts/<account_number>/update", methods=("GET",))
@@ -101,7 +101,7 @@ def account_update_view(account_number):
     if account is None:
         return jsonify({"message": "Account not found.", "status": "error"}), 404
 
-    return jsonify(account)
+    return jsonify(account), 200
 
 
 @app.route("/accounts/<account_number>/update", methods=("POST",))
