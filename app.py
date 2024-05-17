@@ -5,6 +5,7 @@ import os
 from logging.config import dictConfig
 
 from flask import Flask, jsonify, request
+from psycopg import Rollback
 from psycopg.rows import namedtuple_row
 from psycopg_pool import ConnectionPool
 
@@ -142,26 +143,44 @@ def account_delete(account_number):
 
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            with conn.transaction():
-                # BEGIN is executed, a transaction started
-                cur.execute(
-                    """
-                    DELETE FROM depositor
-                    WHERE account_number = %(account_number)s;
-                    """,
-                    {"account_number": account_number},
-                )
-                cur.execute(
-                    """
-                    DELETE FROM account
-                    WHERE account_number = %(account_number)s;
-                    """,
-                    {"account_number": account_number},
-                )
-                # These two operations run atomically in the same transaction
+            try:
+                with conn.transaction() as outer_tx:
+                    # BEGIN is executed, a transaction started
 
-            # COMMIT is executed at the end of the block.
-            # The connection is in idle state again.
+                    cur.execute(
+                        """
+                        DELETE FROM depositor
+                        WHERE account_number = %(account_number)s;
+                        """,
+                        {"account_number": account_number},
+                    )
+
+                    try:
+                        with conn.transaction() as inner_tx:  # noqa: F841
+                            # The block starts with a transaction already open, so it will execute
+                            # - SAVEPOINT
+                            cur.execute(
+                                """
+                                DELETE FROM account
+                                WHERE account_number = %(account_number)s;
+                                """,
+                                {"account_number": account_number},
+                            )
+                    except Exception as e:
+                        log.error(e)
+                        raise Rollback(outer_tx)
+                    else:
+                        # The block was executing a sub-transaction so on exit it will only run:
+                        # - RELEASE SAVEPOINT
+                        # The outer_tx transaction is still on.
+                        pass
+            except Exception as e:
+                log.error(e)
+                raise Rollback(conn)
+            else:
+                # COMMIT is executed at the end of the block.
+                # The connection is in idle state again.
+                pass
 
     # The connection is returned to the pool at the end of the `connection()` context
 
