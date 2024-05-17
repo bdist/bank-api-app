@@ -99,7 +99,7 @@ def account_update_view(account_number):
     # or rolled back, and the connection returned to the pool.
 
     if account is None:
-        return jsonify({"error": "Account not found."}), 404
+        return jsonify({"message": "Account not found.", "status": "error"}), 404
 
     return jsonify(account)
 
