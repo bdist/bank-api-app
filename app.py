@@ -152,26 +152,36 @@ def account_delete(account_number):
 
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            with conn.transaction():
-                # BEGIN is executed, a transaction started
-                cur.execute(
-                    """
-                    DELETE FROM depositor
-                    WHERE account_number = %(account_number)s;
-                    """,
-                    {"account_number": account_number},
-                )
-                cur.execute(
-                    """
-                    DELETE FROM account
-                    WHERE account_number = %(account_number)s;
-                    """,
-                    {"account_number": account_number},
-                )
-                # These two operations run atomically in the same transaction
+            try:
+                with conn.transaction():
+                    # BEGIN is executed, a transaction started
+                    cur.execute(
+                        """
+                        DELETE FROM depositor
+                        WHERE account_number = %(account_number)s;
+                        """,
+                        {"account_number": account_number},
+                    )
+                    cur.execute(
+                        """
+                        DELETE FROM account
+                        WHERE account_number = %(account_number)s;
+                        """,
+                        {"account_number": account_number},
+                    )
+                    # These two operations run atomically in the same transaction
+            except Exception as e:
+                return jsonify({"message": str(e), "status": "error"}), 500
+            else:
+                # COMMIT is executed at the end of the block.
+                # The connection is in idle state again.
+                log.debug(f"Deleted {cur.rowcount} rows.")
 
-            # COMMIT is executed at the end of the block.
-            # The connection is in idle state again.
+                if cur.rowcount == 0:
+                    return (
+                        jsonify({"message": "Account not found.", "status": "error"}),
+                        404,
+                    )
 
     # The connection is returned to the pool at the end of the `connection()` context
 
