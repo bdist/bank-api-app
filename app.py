@@ -146,7 +146,13 @@ def account_update_save(account_number):
         return "", 204
 
 
-@app.route("/accounts/<account_number>/delete", methods=("POST",))
+@app.route(
+    "/accounts/<account_number>/delete",
+    methods=(
+        "DELETE",
+        "POST",
+    ),
+)
 def account_delete(account_number):
     """Delete the account."""
 
