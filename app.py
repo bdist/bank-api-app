@@ -104,7 +104,13 @@ def account_update_view(account_number):
     return jsonify(account), 200
 
 
-@app.route("/accounts/<account_number>/update", methods=("POST",))
+@app.route(
+    "/accounts/<account_number>/update",
+    methods=(
+        "PUT",
+        "POST",
+    ),
+)
 def account_update_save(account_number):
     """Update the account balance."""
 
