@@ -5,11 +5,10 @@ import os
 from logging.config import dictConfig
 
 from flask import Flask, jsonify, request
-from psycopg.rows import namedtuple_row
-from psycopg_pool import ConnectionPool
-
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from psycopg.rows import namedtuple_row
+from psycopg_pool import ConnectionPool
 
 dictConfig(
     {
@@ -37,7 +36,7 @@ limiter = Limiter(
     get_remote_address,
     app=app,
     default_limits=["200 per day", "50 per hour"],
-    storage_uri="redis://redis:6379/"
+    storage_uri="redis://redis:6379/",
 )
 
 # Use the DATABASE_URL environment variable if it exists, otherwise use the default.
