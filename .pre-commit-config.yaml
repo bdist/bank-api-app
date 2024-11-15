@@ -33,6 +33,17 @@ repos:
       - id: black
         args: [--target-version=py39]
 
+  # Autoformat: HTML, Jinja, etc.
+  - repo: https://github.com/djlint/djLint
+    rev: v1.36.1
+    hooks:
+      - id: djlint-reformat-jinja
+        files: "\\.html"
+        types_or: ["html"]
+      - id: djlint-jinja
+        files: "\\.html"
+        types_or: ["html"]
+
   # `pre-commit sample-config` default hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
