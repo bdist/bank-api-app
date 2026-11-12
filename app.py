@@ -1,12 +1,16 @@
-#!/usr/bin/python3
 # Copyright (c) BDist Development Team
 # Distributed under the terms of the Modified BSD License.
-import os
+from decimal import Decimal
+from decimal import InvalidOperation
 from logging.config import dictConfig
+from os import getenv
 
-from flask import Flask, jsonify, request
+from flask import Flask
+from flask import jsonify
+from flask import request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from psycopg import Error
 from psycopg.conninfo import make_conninfo
 from psycopg.rows import namedtuple_row
 from psycopg_pool import ConnectionPool
@@ -17,20 +21,20 @@ dictConfig(
         "formatters": {
             "default": {
                 "format": "[%(asctime)s] %(levelname)s in %(module)s:%(lineno)s - %(funcName)20s(): %(message)s",
-            }
+            },
         },
         "handlers": {
             "wsgi": {
                 "class": "logging.StreamHandler",
                 "stream": "ext://flask.logging.wsgi_errors_stream",
                 "formatter": "default",
-            }
+            },
         },
         "root": {"level": "INFO", "handlers": ["wsgi"]},
-    }
+    },
 )
 
-RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+RATELIMIT_STORAGE_URI = getenv("RATELIMIT_STORAGE_URI", "memory://")
 
 app = Flask(__name__)
 app.config.from_prefixed_env()
@@ -45,32 +49,23 @@ limiter = Limiter(
 # Use the DATABASE_URL environment variable if it exists, otherwise use the default.
 # Use the format postgres://username:password@hostname/database_name to connect to the database.
 DATABASE_URL = make_conninfo(
-    os.environ.get("DATABASE_URL", "postgres://bank:bank@postgres/bank"),
-    application_name=os.environ.get("PGAPPNAME", "bank-api-app"),
+    getenv("DATABASE_URL", "postgres://bank:bank@postgres/bank"),
+    application_name=getenv("PGAPPNAME", "bank-api-app"),
 )
 
 pool = ConnectionPool(
     conninfo=DATABASE_URL,
     kwargs={
-        "autocommit": True,  # If True don’t start transactions automatically.
+        "autocommit": True,  # If True don't start transactions automatically.
         "row_factory": namedtuple_row,
     },
     min_size=4,
     max_size=10,
     open=True,
-    # check=ConnectionPool.check_connection,
+    check=ConnectionPool.check_connection,
     name="postgres_pool",
     timeout=5,
 )
-
-
-def is_decimal(s):
-    """Returns True if string is a parseable float number."""
-    try:
-        float(s)
-        return True
-    except ValueError:
-        return False
 
 
 @app.route("/", methods=("GET",))
@@ -79,17 +74,16 @@ def is_decimal(s):
 def account_index():
     """Show all the accounts, most recent first."""
 
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            accounts = cur.execute(
-                """
+    with pool.connection() as conn, conn.cursor() as cur:
+        accounts = cur.execute(
+            """
                 SELECT account_number, branch_name, balance
                 FROM account
                 ORDER BY account_number DESC;
                 """,
-                {},
-            ).fetchall()
-            log.debug(f"Found {cur.rowcount} rows.")
+            {},
+        ).fetchall()
+        log.debug("Found %s rows.", cur.rowcount)
 
     return jsonify(accounts), 200
 
@@ -99,17 +93,16 @@ def account_index():
 def account_update_view(account_number):
     """Show the page to update the account balance."""
 
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            account = cur.execute(
-                """
+    with pool.connection() as conn, conn.cursor() as cur:
+        account = cur.execute(
+            """
                 SELECT account_number, branch_name, balance
                 FROM account
                 WHERE account_number = %(account_number)s;
                 """,
-                {"account_number": account_number},
-            ).fetchone()
-            log.debug(f"Found {cur.rowcount} rows.")
+            {"account_number": account_number},
+        ).fetchone()
+        log.debug("Found %s rows.", cur.rowcount)
 
     # At the end of the `connection()` context, the transaction is committed
     # or rolled back, and the connection returned to the pool.
@@ -136,36 +129,43 @@ def account_update_save(account_number):
 
     if not balance:
         error = "Balance is required."
-    if not is_decimal(balance):
-        error = "Balance is required to be decimal."
+    else:
+        try:
+            decimal_balance = Decimal(balance)
+        except InvalidOperation:
+            error = "Balance is required to be decimal."
+        else:
+            if not decimal_balance.is_finite():
+                error = "Balance must be a finite decimal."
+            elif decimal_balance < 0:
+                error = "Balance is required to be positive."
 
     if error is not None:
         return jsonify({"message": error, "status": "error"}), 400
-    else:
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
+
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
                     UPDATE account
                     SET balance = %(balance)s
                     WHERE account_number = %(account_number)s;
                     """,
-                    {"account_number": account_number, "balance": balance},
-                )
-                # The result of this statement is persisted immediately by the database
-                # because the connection is in autocommit mode.
-                log.debug(f"Updated {cur.rowcount} rows.")
+            {"account_number": account_number, "balance": balance},
+        )
+        # The result of this statement is persisted immediately by the database
+        # because the connection is in autocommit mode.
+        log.debug("Updated %s rows.", cur.rowcount)
 
-                if cur.rowcount == 0:
-                    return (
-                        jsonify({"message": "Account not found.", "status": "error"}),
-                        404,
-                    )
+        if cur.rowcount == 0:
+            return (
+                jsonify({"message": "Account not found.", "status": "error"}),
+                404,
+            )
 
-        # The connection is returned to the pool at the end of the `connection()` context but,
-        # because it is not in a transaction state, no COMMIT is executed.
+    # The connection is returned to the pool at the end of the `connection()` context but,
+    # because it is not in a transaction state, no COMMIT is executed.
 
-        return "", 204
+    return "", 204
 
 
 @app.route(
@@ -178,38 +178,37 @@ def account_update_save(account_number):
 def account_delete(account_number):
     """Delete the account."""
 
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            try:
-                with conn.transaction():
-                    # BEGIN is executed, a transaction started
-                    cur.execute(
-                        """
+    with pool.connection() as conn, conn.cursor() as cur:
+        try:
+            with conn.transaction():
+                # BEGIN is executed, a transaction started
+                cur.execute(
+                    """
                         DELETE FROM depositor
                         WHERE account_number = %(account_number)s;
                         """,
-                        {"account_number": account_number},
-                    )
-                    cur.execute(
-                        """
+                    {"account_number": account_number},
+                )
+                cur.execute(
+                    """
                         DELETE FROM account
                         WHERE account_number = %(account_number)s;
                         """,
-                        {"account_number": account_number},
-                    )
-                    # These two operations run atomically in the same transaction
-            except Exception as e:
-                return jsonify({"message": str(e), "status": "error"}), 500
-            else:
-                # COMMIT is executed at the end of the block.
-                # The connection is in idle state again.
-                log.debug(f"Deleted {cur.rowcount} rows.")
+                    {"account_number": account_number},
+                )
+                # These two operations run atomically in the same transaction
+        except Error as e:
+            return jsonify({"message": str(e), "status": "error"}), 500
+        else:
+            # COMMIT is executed at the end of the block.
+            # The connection is in idle state again.
+            log.debug("Deleted %s rows.", cur.rowcount)
 
-                if cur.rowcount == 0:
-                    return (
-                        jsonify({"message": "Account not found.", "status": "error"}),
-                        404,
-                    )
+            if cur.rowcount == 0:
+                return (
+                    jsonify({"message": "Account not found.", "status": "error"}),
+                    404,
+                )
 
     # The connection is returned to the pool at the end of the `connection()` context
 
