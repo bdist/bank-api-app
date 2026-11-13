@@ -4,8 +4,10 @@ from decimal import Decimal
 from decimal import InvalidOperation
 from logging.config import dictConfig
 from os import getenv
+from time import perf_counter
 
 from flask import Flask
+from flask import g
 from flask import jsonify
 from flask import request
 from flask_limiter import Limiter
@@ -66,6 +68,20 @@ pool = ConnectionPool(
     name="postgres_pool",
     timeout=5,
 )
+
+
+@app.before_request
+def start_request_timer():
+    g.request_start_time = perf_counter()
+
+
+@app.after_request
+def add_server_timing(response):
+    duration_ms = (perf_counter() - g.request_start_time) * 1000
+    timing = f"app;dur={duration_ms:.2f}"
+    existing_timing = response.headers.get("Server-Timing")
+    response.headers["Server-Timing"] = f"{existing_timing}, {timing}" if existing_timing else timing
+    return response
 
 
 @app.route("/", methods=("GET",))
